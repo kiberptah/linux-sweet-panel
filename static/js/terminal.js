@@ -348,6 +348,71 @@ function fitTab(tab) {
   send(tab, { t: 'r', c: tab.term.cols, r: tab.term.rows });
 }
 
+function mouseOptions(event, overrides) {
+  return Object.assign(
+    {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      detail: event.detail,
+      screenX: event.screenX,
+      screenY: event.screenY,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      ctrlKey: event.ctrlKey,
+      altKey: event.altKey,
+      shiftKey: event.shiftKey,
+      metaKey: event.metaKey,
+      button: event.button,
+      buttons: event.buttons
+    },
+    overrides
+  );
+}
+
+function mouseTracking(tab) {
+  return Boolean(tab.term && tab.term.modes && tab.term.modes.mouseTrackingMode !== 'none');
+}
+
+function installSelection(tab) {
+  const el = tab.hostEl;
+  el.addEventListener(
+    'mousedown',
+    (event) => {
+      if (!event.isTrusted || event.button !== 0) return;
+      if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+      if (!mouseTracking(tab) || !(event.target instanceof Element)) return;
+      const target = event.target.closest('.xterm-screen') ? event.target : null;
+      if (!target) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const press = event;
+      target.dispatchEvent(new MouseEvent('mousedown', mouseOptions(press, { shiftKey: true })));
+      const onUp = (up) => {
+        if (!up.isTrusted || up.button !== 0) return;
+        document.removeEventListener('mouseup', onUp, true);
+        if (press.detail !== 1 || !tab.term || tab.term.hasSelection() || !mouseTracking(tab)) return;
+        if (!target.isConnected) return;
+        setTimeout(() => {
+          if (!tab.term || tab.term.hasSelection() || !target.isConnected) return;
+          target.dispatchEvent(new MouseEvent('mousedown', mouseOptions(press)));
+          target.dispatchEvent(new MouseEvent('mouseup', mouseOptions(press, { buttons: 0 })));
+        }, 0);
+      };
+      document.addEventListener('mouseup', onUp, true);
+    },
+    true
+  );
+  el.addEventListener(
+    'wheel',
+    () => {
+      if (tab.term && mouseTracking(tab) && tab.term.hasSelection()) tab.term.clearSelection();
+    },
+    { capture: true, passive: true }
+  );
+}
+
 function ensureTerm(tab) {
   if (tab.term) return;
   tab.term = new Terminal({
@@ -362,6 +427,7 @@ function ensureTerm(tab) {
   tab.fit = new FitAddon.FitAddon();
   tab.term.loadAddon(tab.fit);
   tab.term.open(tab.hostEl);
+  installSelection(tab);
   tab.term.onData((data) => {
     if (tab.ended && tab.term) tab.term.write('\r\n');
     sendInput(tab, data);
