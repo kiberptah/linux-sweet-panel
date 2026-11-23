@@ -316,6 +316,15 @@ function renderTabs() {
         class: 'term-tab' + (tab.id === active ? ' active' : ''),
         type: 'button',
         onclick: () => selectTab(tab.id),
+        onmousedown: (event) => {
+          if (event.button === 1) event.preventDefault();
+        },
+        onauxclick: (event) => {
+          if (event.button !== 1) return;
+          event.preventDefault();
+          event.stopPropagation();
+          closeTab(tab);
+        },
         ondblclick: (event) => {
           event.preventDefault();
           renameTab(tab);
@@ -401,13 +410,30 @@ function addTab(title, id, command) {
 }
 
 async function closeTab(tab) {
-  if (!tab) return;
-  const ok = await confirmDialog('Close tab "' + tab.title + '"? The tmux session will be killed.', {
-    danger: true,
-    title: 'Close terminal',
-    confirmLabel: 'Kill session'
-  });
-  if (!ok) return;
+  if (!tab || tab.closing) return;
+  tab.closing = true;
+  let running = !tab.ended;
+  if (running) {
+    try {
+      const status = await api.get('/api/terminal/status?id=' + encodeURIComponent(tab.id));
+      running = status.running !== false;
+    } catch (err) {
+      running = true;
+    }
+  }
+  if (tab.closed || !tabs.includes(tab)) return;
+  if (running) {
+    const ok = await confirmDialog('A process is still running. Close tab "' + tab.title + '" and kill its tmux session?', {
+      danger: true,
+      title: 'Close terminal',
+      confirmLabel: 'Kill session'
+    });
+    if (!ok) {
+      tab.closing = false;
+      return;
+    }
+    if (tab.closed || !tabs.includes(tab)) return;
+  }
   tab.closed = true;
   if (tab.retryTimer) clearTimeout(tab.retryTimer);
   if (tab.ws) {

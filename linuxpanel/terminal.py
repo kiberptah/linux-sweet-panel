@@ -110,6 +110,24 @@ def api_terminal_sessions(req):
     return {"sessions": sorted(sessions)}
 
 
+@route("GET", "/api/terminal/status")
+def api_terminal_status(req):
+    session_id = (req.query.get("id") or "").strip()
+    if not ID_RE.match(session_id):
+        raise ApiError(400, "invalid session id")
+    code, out, err = _tmux(
+        req.user.name,
+        ["list-panes", "-s", "-t", "lp-" + session_id, "-F", "#{pane_current_command}"],
+    )
+    if code != 0:
+        message = err.decode("utf-8", "replace").strip() or "session not found"
+        raise ApiError(400, message)
+    shell = os.path.basename(req.user.shell or "/bin/sh")
+    commands = [line.strip() for line in out.decode("utf-8", "replace").splitlines()]
+    running = any(command and command != shell for command in commands)
+    return {"running": running}
+
+
 @route("POST", "/api/terminal/kill")
 def api_terminal_kill(req):
     data = req.json()
