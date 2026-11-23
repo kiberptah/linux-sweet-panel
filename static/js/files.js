@@ -603,7 +603,7 @@ function searchFiles() {
     status,
     results
   );
-  return modal({
+  const dialog = modal({
     title: 'Search files',
     body,
     wide: true,
@@ -622,6 +622,8 @@ function searchFiles() {
       }
     ]
   });
+  input.focus();
+  return dialog;
 }
 
 function setPathEditing(editing) {

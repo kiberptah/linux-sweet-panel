@@ -1241,7 +1241,18 @@ th.num {
 }
 
 .file-search-result .glyph {
+  width: 16px;
+  height: 16px;
   flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.file-search-result .glyph.dir {
+  color: var(--sky);
+}
+
+.file-search-result .glyph.link {
+  color: var(--peach);
 }
 
 .file-search-result-text {
