@@ -106,6 +106,17 @@ function renderUsers(body) {
     if (user.panel_blocked) flags.push(badge('panel-blocked', 'danger'));
     if (user.ssh_blocked) flags.push(badge('ssh-blocked', 'danger'));
     if (user.system) flags.push(badge('system', 'muted'));
+    const isSelf = ctxRef && ctxRef.me && ctxRef.me.name === user.name;
+    const shellName = (user.shell || '').split('/').pop();
+    const noLoginShell = !user.shell || shellName === 'nologin' || shellName === 'false';
+    const switchDisabled = isSelf || user.panel_blocked || noLoginShell;
+    const switchTitle = isSelf
+      ? 'Already using this account'
+      : user.panel_blocked
+        ? 'Panel login is blocked for this account'
+        : noLoginShell
+          ? 'This account has no login shell'
+          : 'Switch the panel session to ' + user.name;
     tbody.appendChild(
       h(
         'tr',
@@ -118,7 +129,22 @@ function renderUsers(body) {
         h(
           'td',
           {},
-          h('button', { class: 'btn btn-sm', type: 'button', onclick: () => openDetail(user.name) }, 'Manage')
+          h(
+            'div',
+            { class: 'toolbar', style: { gap: '6px', justifyContent: 'flex-end' } },
+            h('button', { class: 'btn btn-sm', type: 'button', onclick: () => openDetail(user.name) }, 'Manage'),
+            h(
+              'button',
+              {
+                class: 'btn btn-sm',
+                type: 'button',
+                disabled: switchDisabled,
+                title: switchTitle,
+                onclick: () => switchUser(user)
+              },
+              'Switch user'
+            )
+          )
         )
       )
     );
@@ -217,6 +243,43 @@ async function createUser() {
     ]
   });
   void result;
+}
+
+async function switchUser(user) {
+  const password = h('input', { class: 'input', type: 'password', autocomplete: 'current-password' });
+  const result = await modal({
+    title: 'Switch to ' + user.name,
+    body: h(
+      'div',
+      { class: 'form-grid' },
+      h('p', {
+        class: 'modal-text',
+        text: 'Enter the password for ' + user.name + '. Your current panel session will be replaced after a successful login.'
+      }),
+      h('label', { class: 'field' }, h('span', { text: 'Password for ' + user.name }), password)
+    ),
+    actions: [
+      { label: 'Cancel', value: null },
+      {
+        label: 'Switch user',
+        value: true,
+        variant: 'primary',
+        onClick: async () => {
+          if (!password.value) {
+            toast('Password is required', 'danger');
+            return false;
+          }
+          try {
+            await api.post('/api/accounts/switch', { name: user.name, password: password.value });
+          } finally {
+            password.value = '';
+          }
+          return undefined;
+        }
+      }
+    ]
+  });
+  if (result === true) window.location.reload();
 }
 
 function switchRow(label, checked, hint, onChange, disabled) {

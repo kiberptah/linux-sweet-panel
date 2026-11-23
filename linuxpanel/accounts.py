@@ -10,7 +10,7 @@ from . import auth
 from . import state
 from . import security
 from .files import run_worker
-from .httpd import ApiError, route
+from .httpd import ApiError, Response, route
 
 NAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 KEY_TYPES = (
@@ -236,6 +236,24 @@ def api_groups(req):
     for entry in sorted(grp.getgrall(), key=lambda item: item.gr_name):
         groups.append({"name": entry.gr_name, "gid": entry.gr_gid, "members": list(entry.gr_mem)})
     return {"groups": groups}
+
+
+@route("POST", "/api/accounts/switch", auth="admin")
+def api_accounts_switch(req):
+    data = req.json()
+    name = _name(data.get("name"))
+    if name == req.user.name:
+        raise ApiError(400, "already using this account")
+    password = data.get("password")
+    try:
+        token, user = auth.login(name, password if isinstance(password, str) else "", req.ip)
+    except auth.LoginError as exc:
+        status = 400 if exc.status == 401 else exc.status
+        raise ApiError(status, exc.message)
+    if req.session_token:
+        auth.destroy_session(req.session_token)
+    audit.log("account_switch", user=req.user.name, ip=req.ip, target=name, ok=True)
+    return Response.json({"user": user.to_dict()}, headers=[("Set-Cookie", auth.session_cookie(token))])
 
 
 @route("POST", "/api/accounts/create", auth="admin")
