@@ -146,7 +146,16 @@ function renderFileTabs() {
           class: 'file-tab' + (tab.id === activeTabId ? ' active' : ''),
           type: 'button',
           title: tab.cwd,
-          onclick: () => selectFileTab(tab.id)
+          onclick: () => selectFileTab(tab.id),
+          onmousedown: (event) => {
+            if (event.button === 1) event.preventDefault();
+          },
+          onauxclick: (event) => {
+            if (event.button !== 1) return;
+            event.preventDefault();
+            event.stopPropagation();
+            closeFileTab(tab);
+          }
         },
         h('span', { text: tab.title || tabTitle(tab.cwd) }),
         close
