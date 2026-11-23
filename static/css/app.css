@@ -1118,6 +1118,17 @@ th.num {
   height: 16px;
 }
 
+.files-toolbar-button-dual {
+  flex-basis: 48px;
+  width: 48px;
+  gap: 3px;
+}
+
+.files-toolbar-button-dual .icon {
+  width: 14px;
+  height: 14px;
+}
+
 .files-toolbar-button:focus-visible {
   outline: 2px solid var(--lavender);
   outline-offset: 2px;

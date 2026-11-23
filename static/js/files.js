@@ -923,6 +923,13 @@ const TOOLBAR_ICONS = {
     ['path', { d: 'M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16' }],
     ['path', { d: 'M8 16H3v5' }]
   ],
+  plus: [
+    ['path', { d: 'M5 12h14' }],
+    ['path', { d: 'M12 5v14' }]
+  ],
+  'arrow-big-right': [
+    ['path', { d: 'M13.207 19.793a.707.707 0 0 1-1.207-.5V16a1 1 0 0 0-1-1H5a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h6a1 1 0 0 0 1-1V4.707a.707.707 0 0 1 1.207-.5l6.94 6.94a1.207 1.207 0 0 1 0 1.707z' }]
+  ],
   'square-terminal': [
     ['path', { d: 'm7 11 2-2-2-2' }],
     ['path', { d: 'M11 13h4' }],
@@ -953,17 +960,22 @@ function lucideIcon(name) {
 }
 
 function toolbarButton({ className = '', label, iconName, onClick, disabled = false }) {
+  const iconNames = Array.isArray(iconName) ? iconName : [iconName];
   return h(
     'button',
     {
-      class: 'btn btn-sm files-toolbar-button ' + className,
+      class:
+        'btn btn-sm files-toolbar-button' +
+        (iconNames.length > 1 ? ' files-toolbar-button-dual' : '') +
+        ' ' +
+        className,
       type: 'button',
       title: label,
       'aria-label': label,
       disabled,
       onclick: onClick
     },
-    lucideIcon(iconName)
+    ...iconNames.map((name) => lucideIcon(name))
   );
 }
 
@@ -1018,12 +1030,12 @@ export async function mount(container, ctx) {
       pathInput,
       toolbarButton({
         label: 'Open a new terminal in this directory',
-        iconName: 'square-terminal',
+        iconName: ['square-terminal', 'plus'],
         onClick: () => openTerminalHere(cwd)
       }),
       toolbarButton({
         label: 'Move the active terminal to this directory',
-        iconName: 'terminal',
+        iconName: ['square-terminal', 'arrow-big-right'],
         onClick: () => moveTerminalHere(cwd)
       })
     ),
