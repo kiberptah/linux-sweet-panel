@@ -1083,20 +1083,52 @@ th.num {
 
 .files-toolbar {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 6px;
   padding: 7px 8px;
   border-bottom: 1px solid var(--border);
   background: var(--panel-2);
+}
+
+.files-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.files-toolbar-primary {
+  flex-wrap: nowrap;
+}
+
+.files-toolbar-secondary {
   flex-wrap: wrap;
+}
+
+.files-toolbar-button {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  padding: 5px;
+}
+
+.files-toolbar-button .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.files-toolbar-button:focus-visible {
+  outline: 2px solid var(--lavender);
+  outline-offset: 2px;
 }
 
 .crumbs {
   display: flex;
   align-items: center;
   gap: 2px;
-  flex: 1;
-  min-width: 120px;
+  flex: 1 1 120px;
+  min-width: 100px;
   overflow-x: auto;
   font-family: var(--mono);
   font-size: 12px;
@@ -1124,8 +1156,10 @@ th.num {
 }
 
 .path-input {
-  flex: 1;
-  min-width: 140px;
+  flex: 1 1 auto;
+  width: 0;
+  min-width: 80px;
+  height: 28px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;

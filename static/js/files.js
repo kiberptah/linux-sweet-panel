@@ -887,6 +887,86 @@ async function editFile(path) {
   updateStatus();
 }
 
+// SVG definitions from https://lucide.dev (ISC license).
+const TOOLBAR_ICONS = {
+  'folder-plus': [
+    ['path', { d: 'M12 10v6' }],
+    ['path', { d: 'M9 13h6' }],
+    ['path', { d: 'M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z' }]
+  ],
+  'file-plus': [
+    ['path', { d: 'M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z' }],
+    ['path', { d: 'M14 2v5a1 1 0 0 0 1 1h5' }],
+    ['path', { d: 'M9 15h6' }],
+    ['path', { d: 'M12 18v-6' }]
+  ],
+  upload: [
+    ['path', { d: 'M12 3v12' }],
+    ['path', { d: 'm17 8-5-5-5 5' }],
+    ['path', { d: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' }]
+  ],
+  'arrow-left': [
+    ['path', { d: 'm12 19-7-7 7-7' }],
+    ['path', { d: 'M19 12H5' }]
+  ],
+  'arrow-right': [
+    ['path', { d: 'M5 12h14' }],
+    ['path', { d: 'm12 5 7 7-7 7' }]
+  ],
+  home: [
+    ['path', { d: 'M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8' }],
+    ['path', { d: 'M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' }]
+  ],
+  'refresh-cw': [
+    ['path', { d: 'M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8' }],
+    ['path', { d: 'M21 3v5h-5' }],
+    ['path', { d: 'M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16' }],
+    ['path', { d: 'M8 16H3v5' }]
+  ],
+  'square-terminal': [
+    ['path', { d: 'm7 11 2-2-2-2' }],
+    ['path', { d: 'M11 13h4' }],
+    ['rect', { width: '18', height: '18', x: '3', y: '3', rx: '2', ry: '2' }]
+  ],
+  terminal: [
+    ['path', { d: 'M12 19h8' }],
+    ['path', { d: 'm4 17 6-6-6-6' }]
+  ]
+};
+
+function lucideIcon(name) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', 'icon');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  for (const [tag, attrs] of TOOLBAR_ICONS[name]) {
+    const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+    svg.appendChild(node);
+  }
+  return svg;
+}
+
+function toolbarButton({ className = '', label, iconName, onClick, disabled = false }) {
+  return h(
+    'button',
+    {
+      class: 'btn btn-sm files-toolbar-button ' + className,
+      type: 'button',
+      title: label,
+      'aria-label': label,
+      disabled,
+      onclick: onClick
+    },
+    lucideIcon(iconName)
+  );
+}
+
 export async function mount(container, ctx) {
   ctxRef = ctx;
   mounted = true;
@@ -928,40 +1008,49 @@ export async function mount(container, ctx) {
     'div',
     { class: 'files-toolbar' },
     h(
-      'button',
-      {
-        class: 'btn btn-sm history-previous',
-        type: 'button',
-        title: 'No previous directory',
-        'aria-label': 'Previous directory',
-        disabled: true,
-        onclick: () => goHistory(-1)
-      },
-      'Previous'
+      'div',
+      { class: 'files-toolbar-row files-toolbar-primary' },
+      toolbarButton({
+        label: 'Home directory',
+        iconName: 'home',
+        onClick: () => navigate((ctx.me && ctx.me.home) || '/')
+      }),
+      pathInput,
+      toolbarButton({
+        label: 'Open a new terminal in this directory',
+        iconName: 'square-terminal',
+        onClick: () => openTerminalHere(cwd)
+      }),
+      toolbarButton({
+        label: 'Move the active terminal to this directory',
+        iconName: 'terminal',
+        onClick: () => moveTerminalHere(cwd)
+      })
     ),
     h(
-      'button',
-      {
-        class: 'btn btn-sm history-next',
-        type: 'button',
-        title: 'No next directory',
-        'aria-label': 'Next directory',
+      'div',
+      { class: 'files-toolbar-row files-toolbar-secondary' },
+      toolbarButton({
+        className: 'history-previous',
+        label: 'Previous directory',
+        iconName: 'arrow-left',
         disabled: true,
-        onclick: () => goHistory(1)
-      },
-      'Next'
+        onClick: () => goHistory(-1)
+      }),
+      toolbarButton({
+        className: 'history-next',
+        label: 'Next directory',
+        iconName: 'arrow-right',
+        disabled: true,
+        onClick: () => goHistory(1)
+      }),
+      toolbarButton({ label: 'Refresh', iconName: 'refresh-cw', onClick: () => refresh() }),
+      toolbarButton({ label: 'New folder', iconName: 'folder-plus', onClick: () => newFolder() }),
+      toolbarButton({ label: 'New file', iconName: 'file-plus', onClick: () => newFile() }),
+      toolbarButton({ label: 'Upload files', iconName: 'upload', onClick: () => fileInput.click() }),
+      h('label', { class: 'check', style: { fontSize: '12px' } }, hiddenToggle, h('span', { text: 'Hidden' })),
+      crumbs
     ),
-    h('button', { class: 'btn btn-sm', type: 'button', title: 'Up one level', onclick: () => navigate(parentOf(cwd)) }, 'Up'),
-    h('button', { class: 'btn btn-sm', type: 'button', title: 'Home directory', onclick: () => navigate((ctx.me && ctx.me.home) || '/') }, 'Home'),
-    h('button', { class: 'btn btn-sm', type: 'button', title: 'Refresh', onclick: () => refresh() }, 'Refresh'),
-    h('button', { class: 'btn btn-sm', type: 'button', title: 'Open a new terminal in this directory', onclick: () => openTerminalHere(cwd) }, 'Open >_'),
-    h('button', { class: 'btn btn-sm', type: 'button', title: 'Move the active terminal to this directory', onclick: () => moveTerminalHere(cwd) }, 'Move >_'),
-    crumbs,
-    pathInput,
-    h('button', { class: 'btn btn-sm', type: 'button', onclick: () => newFolder() }, 'New Folder'),
-    h('button', { class: 'btn btn-sm', type: 'button', onclick: () => newFile() }, 'New File'),
-    h('button', { class: 'btn btn-sm', type: 'button', onclick: () => fileInput.click() }, 'Upload'),
-    h('label', { class: 'check', style: { fontSize: '12px' } }, hiddenToggle, h('span', { text: 'Hidden' })),
     fileInput
   );
   const body = h('tbody');
