@@ -145,6 +145,16 @@ def api_files_list(req):
     )
 
 
+@route("GET", "/api/files/search")
+def api_files_search(req):
+    hidden = req.query.get("hidden") in ("1", "true", "yes")
+    return run_worker(
+        req.user.name,
+        {"op": "search", "path": _path_param(req), "query": req.query.get("q") or "", "hidden": hidden},
+        _timeout("search"),
+    )
+
+
 @route("GET", "/api/files/read")
 def api_files_read(req):
     return run_worker(req.user.name, {"op": "read", "path": _path_param(req)}, _timeout("read"))

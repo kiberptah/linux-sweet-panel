@@ -1181,6 +1181,100 @@ th.num {
   outline: none;
 }
 
+.file-search {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.file-search-form {
+  display: flex;
+  gap: 8px;
+}
+
+.file-search-form .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.file-search-status {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.file-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 120px;
+  max-height: min(340px, 45vh);
+  overflow-y: auto;
+}
+
+.file-search-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.file-search-result:hover {
+  background: var(--panel-2);
+}
+
+.file-search-result.selected {
+  border-color: rgba(185, 168, 255, 0.35);
+  background: rgba(185, 168, 255, 0.14);
+}
+
+.file-search-result:focus-visible {
+  outline: 2px solid var(--lavender);
+  outline-offset: 1px;
+}
+
+.file-search-result .glyph {
+  flex: 0 0 auto;
+}
+
+.file-search-result-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.file-search-result-name,
+.file-search-result-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-search-result-path,
+.file-search-result-type {
+  font-size: 11px;
+}
+
+.file-search-result-type {
+  flex: 0 0 auto;
+}
+
+.file-search-empty {
+  padding: 24px 8px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 13px;
+}
+
 .files-list {
   flex: 1;
   overflow: auto;

@@ -77,6 +77,39 @@ def _octal(mode):
     return format(stat.S_IMODE(mode), "03o")
 
 
+def _file_entry(full, name):
+    try:
+        st = os.lstat(full)
+    except OSError:
+        return None
+    kind = _entry_type(st.st_mode)
+    target_type = None
+    link_target = None
+    if kind == "link":
+        try:
+            link_target = os.readlink(full)
+        except OSError:
+            link_target = None
+        try:
+            target = os.stat(full)
+            target_type = "dir" if stat.S_ISDIR(target.st_mode) else "file"
+        except OSError:
+            target_type = "broken"
+    owner, group = _owner(st.st_uid, st.st_gid)
+    return {
+        "name": name,
+        "type": kind,
+        "target_type": target_type,
+        "link_target": link_target,
+        "size": int(st.st_size),
+        "mtime": int(st.st_mtime),
+        "mode": stat.filemode(st.st_mode),
+        "octal": _octal(st.st_mode),
+        "owner": owner,
+        "group": group,
+    }
+
+
 def op_list(req):
     path = _path(req.get("path"))
     hidden = bool(req.get("hidden"))
@@ -86,42 +119,56 @@ def op_list(req):
     for name in names:
         if not hidden and name.startswith("."):
             continue
-        full = os.path.join(real, name)
-        try:
-            st = os.lstat(full)
-        except OSError:
-            continue
-        kind = _entry_type(st.st_mode)
-        target_type = None
-        link_target = None
-        if kind == "link":
-            try:
-                link_target = os.readlink(full)
-            except OSError:
-                link_target = None
-            try:
-                target = os.stat(full)
-                target_type = "dir" if stat.S_ISDIR(target.st_mode) else "file"
-            except OSError:
-                target_type = "broken"
-        owner, group = _owner(st.st_uid, st.st_gid)
-        entries.append(
-            {
-                "name": name,
-                "type": kind,
-                "target_type": target_type,
-                "link_target": link_target,
-                "size": int(st.st_size),
-                "mtime": int(st.st_mtime),
-                "mode": stat.filemode(st.st_mode),
-                "octal": _octal(st.st_mode),
-                "owner": owner,
-                "group": group,
-            }
-        )
+        entry = _file_entry(os.path.join(real, name), name)
+        if entry is not None:
+            entries.append(entry)
     entries.sort(key=lambda item: (0 if item["type"] == "dir" else 1, item["name"].lower()))
     parent = os.path.dirname(real)
     return {"ok": True, "path": real, "parent": parent if parent and parent != real else None, "entries": entries}
+
+
+def op_search(req):
+    path = _path(req.get("path"))
+    query = req.get("query")
+    if not isinstance(query, str) or not query.strip():
+        raise ValueError("search query is required")
+    query = query.strip()
+    needle = query.casefold()
+    hidden = bool(req.get("hidden"))
+    real = os.path.realpath(path)
+    if not os.path.isdir(real):
+        raise NotADirectoryError(real)
+    entries = []
+    truncated = False
+    visited = 0
+    for root, dirnames, filenames in os.walk(real, topdown=True, followlinks=False):
+        dirnames.sort(key=str.casefold)
+        filenames.sort(key=str.casefold)
+        if not hidden:
+            dirnames[:] = [name for name in dirnames if not name.startswith(".")]
+        for name in dirnames + filenames:
+            if not hidden and name.startswith("."):
+                continue
+            visited += 1
+            if visited > 50000:
+                truncated = True
+                break
+            if needle not in name.casefold():
+                continue
+            full = os.path.join(root, name)
+            entry = _file_entry(full, name)
+            if entry is None:
+                continue
+            entry["path"] = full
+            entry["relative_path"] = os.path.relpath(full, real)
+            entries.append(entry)
+            if len(entries) >= 200:
+                truncated = True
+                break
+        if truncated:
+            break
+    entries.sort(key=lambda item: item["relative_path"].casefold())
+    return {"ok": True, "path": real, "query": query, "entries": entries, "truncated": truncated}
 
 
 def op_read(req):
@@ -369,6 +416,7 @@ def op_authkeys_write(req):
 
 OPS = {
     "list": op_list,
+    "search": op_search,
     "read": op_read,
     "write": op_write,
     "mkdir": op_mkdir,

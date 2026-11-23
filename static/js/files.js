@@ -487,6 +487,143 @@ function openEntry(entry) {
   editFile(path);
 }
 
+function openSearchResult(entry) {
+  if (!entry || !entry.path) return;
+  if (entry.type === 'dir' || (entry.type === 'link' && entry.target_type === 'dir')) {
+    navigate(entry.path);
+    return;
+  }
+  editFile(entry.path);
+}
+
+function searchFiles() {
+  if (!host) return;
+  const directory = cwd || '/';
+  const input = h('input', {
+    class: 'input file-search-input',
+    type: 'search',
+    placeholder: 'File or folder name',
+    'aria-label': 'Search file and folder names',
+    onkeydown: (event) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      runSearch();
+    }
+  });
+  const status = h('div', { class: 'file-search-status muted', text: 'Search within ' + directory + ' and its subdirectories.' });
+  const results = h('div', { class: 'file-search-results', role: 'listbox', 'aria-label': 'Search results' });
+  let items = [];
+  let selected = null;
+  let searching = false;
+  let searched = false;
+  let requestId = 0;
+
+  function renderResults() {
+    results.textContent = '';
+    selected = items.length ? items[0] : null;
+    if (!items.length && searched) {
+      results.appendChild(h('div', { class: 'file-search-empty', text: 'No matching files or folders.' }));
+      return;
+    }
+    items.forEach((item, index) => {
+      const row = h(
+        'button',
+        {
+          class: 'file-search-result' + (index === 0 ? ' selected' : ''),
+          type: 'button',
+          role: 'option',
+          'aria-selected': index === 0 ? 'true' : 'false',
+          dataset: { index: String(index) },
+          onclick: () => {
+            selected = item;
+            for (const child of results.children) {
+              const active = child === row;
+              child.classList.toggle('selected', active);
+              child.setAttribute('aria-selected', active ? 'true' : 'false');
+            }
+          }
+        },
+        glyph(item),
+        h(
+          'span',
+          { class: 'file-search-result-text' },
+          h('span', { class: 'file-search-result-name', text: item.name }),
+          h('span', { class: 'file-search-result-path muted', text: item.relative_path || item.path || item.name })
+        ),
+        h('span', { class: 'file-search-result-type muted', text: item.type === 'dir' ? 'Folder' : 'File' })
+      );
+      results.appendChild(row);
+    });
+  }
+
+  async function runSearch() {
+    const query = input.value.trim();
+    if (!query) {
+      status.textContent = 'Enter a file or folder name to search for.';
+      input.focus();
+      return;
+    }
+    if (searching) return;
+    searching = true;
+    searched = false;
+    const currentRequest = ++requestId;
+    searchButton.disabled = true;
+    items = [];
+    renderResults();
+    status.textContent = 'Searching ' + directory + '…';
+    try {
+      const data = await api.get(
+        '/api/files/search?path=' + encodeURIComponent(directory) + '&q=' + encodeURIComponent(query) + '&hidden=' + (showHidden ? '1' : '0')
+      );
+      if (currentRequest !== requestId) return;
+      items = Array.isArray(data.entries) ? data.entries : [];
+      searched = true;
+      status.textContent = data.truncated
+        ? 'Showing the first ' + items.length + ' matches. Refine your search for fewer results.'
+        : items.length + (items.length === 1 ? ' match' : ' matches') + ' in ' + directory;
+      renderResults();
+    } catch (err) {
+      if (currentRequest !== requestId) return;
+      items = [];
+      renderResults();
+      status.textContent = err.message;
+    } finally {
+      if (currentRequest === requestId) {
+        searching = false;
+        searchButton.disabled = false;
+      }
+    }
+  }
+
+  const searchButton = h('button', { class: 'btn btn-primary', type: 'button', onclick: () => runSearch() }, 'Search');
+  const body = h(
+    'div',
+    { class: 'file-search' },
+    h('div', { class: 'file-search-form' }, input, searchButton),
+    status,
+    results
+  );
+  return modal({
+    title: 'Search files',
+    body,
+    wide: true,
+    actions: [
+      { label: 'Close', value: null },
+      {
+        label: 'Open',
+        variant: 'primary',
+        onClick: (close) => {
+          if (!selected) return false;
+          const item = selected;
+          close(null);
+          openSearchResult(item);
+          return false;
+        }
+      }
+    ]
+  });
+}
+
 function setPathEditing(editing) {
   if (!host) return;
   const input = host.querySelector('.path-input');
@@ -985,6 +1122,10 @@ const TOOLBAR_ICONS = {
     ['path', { d: 'M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7' }],
     ['path', { d: 'M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z' }]
   ],
+  search: [
+    ['circle', { cx: '11', cy: '11', r: '8' }],
+    ['path', { d: 'm21 21-4.3-4.3' }]
+  ],
   check: [['path', { d: 'M20 6 9 17l-5-5' }]],
   x: [
     ['path', { d: 'M18 6 6 18' }],
@@ -1090,6 +1231,12 @@ export async function mount(container, ctx) {
         label: 'Edit path',
         iconName: 'square-pen',
         onClick: () => setPathEditing(true)
+      }),
+      toolbarButton({
+        className: 'file-search-button',
+        label: 'Search files',
+        iconName: 'search',
+        onClick: () => searchFiles()
       }),
       toolbarButton({
         className: 'path-save hidden',
