@@ -138,6 +138,10 @@ function build() {
     openTerminal: (command) => {
       setFocus('terminal');
       terminalPane.openInTerminal(command);
+    },
+    moveTerminal: (command) => {
+      setFocus('terminal');
+      terminalPane.runInActiveTerminal(command);
     }
   });
   const termEl = panes.querySelector('.pane-terminal');

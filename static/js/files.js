@@ -15,14 +15,173 @@ let saveTimer = null;
 let editor = null;
 let menu = null;
 let uploads = [];
-let loading = false;
+let tabs = [];
+let activeTabId = null;
+
+const ID_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
+
+function newId() {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  let id = '';
+  for (let i = 0; i < 8; i += 1) id += ID_CHARS[bytes[i] % ID_CHARS.length];
+  return id;
+}
+
+function currentTab() {
+  return tabs.find((tab) => tab.id === activeTabId) || null;
+}
+
+function tabTitle(path) {
+  if (!path || path === '/') return '/';
+  return path.replace(/\/+$/, '').split('/').pop() || '/';
+}
+
+function makeTab(path, id) {
+  return {
+    id: id || newId(),
+    title: tabTitle(path),
+    cwd: path || '/',
+    entries: [],
+    selection: new Set(),
+    lastIndex: -1,
+    loaded: false,
+    loading: false,
+    requestId: 0
+  };
+}
+
+function captureActiveTab() {
+  const tab = currentTab();
+  if (!tab) return;
+  tab.cwd = cwd || '/';
+  tab.title = tabTitle(tab.cwd);
+  tab.entries = entries;
+  tab.selection = new Set(selection);
+  tab.lastIndex = lastIndex;
+}
+
+function restoreTab(tab) {
+  if (!tab) return;
+  cwd = tab.cwd || '/';
+  entries = Array.isArray(tab.entries) ? tab.entries : [];
+  selection = new Set(tab.selection || []);
+  lastIndex = typeof tab.lastIndex === 'number' ? tab.lastIndex : -1;
+}
 
 function savePrefs() {
+  captureActiveTab();
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     saveTimer = null;
-    api.post('/api/prefs', { files: { cwd, show_hidden: showHidden } }).catch((err) => toast(err.message, 'danger'));
+    api
+      .post('/api/prefs', {
+        files: {
+          cwd,
+          show_hidden: showHidden,
+          active: activeTabId,
+          tabs: tabs.map((tab) => ({ id: tab.id, title: tab.title, cwd: tab.cwd }))
+        }
+      })
+      .catch((err) => toast(err.message, 'danger'));
   }, 300);
+}
+
+function renderFileTabs() {
+  if (!host) return;
+  const strip = host.querySelector('.file-tabs');
+  if (!strip) return;
+  strip.textContent = '';
+  for (const tab of tabs) {
+    const close = h(
+      'button',
+      {
+        class: 'close',
+        type: 'button',
+        title: 'Close file tab',
+        'aria-label': 'Close file tab',
+        onclick: (event) => {
+          event.stopPropagation();
+          closeFileTab(tab);
+        }
+      },
+      '\u00d7'
+    );
+    strip.appendChild(
+      h(
+        'button',
+        {
+          class: 'file-tab' + (tab.id === activeTabId ? ' active' : ''),
+          type: 'button',
+          title: tab.cwd,
+          onclick: () => selectFileTab(tab.id)
+        },
+        h('span', { text: tab.title || tabTitle(tab.cwd) }),
+        close
+      )
+    );
+  }
+  strip.appendChild(
+    h(
+      'button',
+      {
+        class: 'icon-btn',
+        type: 'button',
+        title: 'New file tab',
+        'aria-label': 'New file tab',
+        onclick: () => addFileTab(cwd || '/')
+      },
+      '+'
+    )
+  );
+}
+
+function selectFileTab(id) {
+  if (id === activeTabId) return;
+  const tab = tabs.find((item) => item.id === id);
+  if (!tab) return;
+  captureActiveTab();
+  activeTabId = id;
+  restoreTab(tab);
+  closeMenu();
+  renderAll();
+  savePrefs();
+  if (!tab.loaded && !tab.loading) load(tab.cwd);
+}
+
+function addFileTab(path, id) {
+  captureActiveTab();
+  const tab = makeTab(path || cwd || '/', id);
+  tabs.push(tab);
+  activeTabId = tab.id;
+  restoreTab(tab);
+  closeMenu();
+  renderAll();
+  savePrefs();
+  load(tab.cwd);
+  return tab;
+}
+
+function closeFileTab(tab) {
+  const index = tabs.indexOf(tab);
+  if (index < 0) return;
+  tabs.splice(index, 1);
+  if (!tabs.length) {
+    activeTabId = null;
+    addFileTab(tab.cwd || '/');
+    return;
+  }
+  if (activeTabId === tab.id) {
+    const next = tabs[Math.min(index, tabs.length - 1)];
+    activeTabId = next.id;
+    restoreTab(next);
+    renderAll();
+    if (!next.loaded && !next.loading) load(next.cwd);
+  } else {
+    renderFileTabs();
+  }
+  closeMenu();
+  savePrefs();
 }
 
 function join(dir, name) {
@@ -53,18 +212,18 @@ function closeMenu() {
   }
 }
 
-function openMenu(event, entry) {
+function openMenu(event, entry, directoryPath) {
   closeMenu();
   if (entry && !selection.has(entry.name)) {
     selection = new Set([entry.name]);
     lastIndex = entries.indexOf(entry);
-    renderRows();
+    updateSelectionStyles();
   }
   const items = [];
   const picked = selectedEntries();
   const single = picked.length === 1 ? picked[0] : null;
   if (single) {
-    items.push({ label: single.type === 'dir' ? 'Open' : 'Open', action: () => openEntry(single) });
+    items.push({ label: 'Open', action: () => openEntry(single) });
     if (single.type !== 'dir') {
       items.push({ label: 'Edit', action: () => editFile(join(cwd, single.name)) });
       items.push({ label: 'Edit with nano', action: () => nanoFile(join(cwd, single.name)) });
@@ -72,16 +231,18 @@ function openMenu(event, entry) {
     }
     items.push({ label: 'Rename', action: () => renameSelected() });
   }
-  items.push({ label: 'Copy', action: () => setClipboard('copy') });
-  items.push({ label: 'Cut', action: () => setClipboard('cut') });
-  items.push({ label: 'Paste', action: () => paste(), disabled: !clipboard.paths.length });
-  items.push({ sep: true });
-  items.push({ label: 'Delete', action: () => deleteSelected(), danger: true });
-  if (single) {
-    items.push({ label: 'Chmod', action: () => chmodSelected() });
-    items.push({ label: 'Open terminal here', action: () => openTerminalHere(single.type === 'dir' ? join(cwd, single.name) : cwd) });
+  if (picked.length) {
+    items.push({ label: 'Copy', action: () => setClipboard('copy') });
+    items.push({ label: 'Cut', action: () => setClipboard('cut') });
   }
-  menu = h('div', { class: 'ctx-menu', style: { left: event.clientX + 'px', top: event.clientY + 'px' } });
+  items.push({ label: 'Paste', action: () => paste(), disabled: !clipboard.paths.length });
+  if (picked.length) items.push({ label: 'Delete', action: () => deleteSelected(), danger: true });
+  if (single) items.push({ label: 'Chmod', action: () => chmodSelected() });
+  const terminalPath = single ? (single.type === 'dir' ? join(cwd, single.name) : cwd) : directoryPath || cwd;
+  items.push({ sep: true });
+  items.push({ label: 'Open terminal here', action: () => openTerminalHere(terminalPath) });
+  items.push({ label: 'Move terminal here', action: () => moveTerminalHere(terminalPath) });
+  menu = h('div', { class: 'ctx-menu', role: 'menu', style: { left: event.clientX + 'px', top: event.clientY + 'px' } });
   for (const item of items) {
     if (item.sep) {
       menu.appendChild(h('div', { class: 'ctx-sep' }));
@@ -93,6 +254,7 @@ function openMenu(event, entry) {
         {
           class: 'ctx-item' + (item.danger ? ' danger' : ''),
           type: 'button',
+          role: 'menuitem',
           disabled: item.disabled === true,
           onclick: () => {
             closeMenu();
@@ -107,6 +269,8 @@ function openMenu(event, entry) {
   const rect = menu.getBoundingClientRect();
   if (rect.bottom > window.innerHeight) menu.style.top = Math.max(6, window.innerHeight - rect.height - 6) + 'px';
   if (rect.right > window.innerWidth) menu.style.left = Math.max(6, window.innerWidth - rect.width - 6) + 'px';
+  const first = menu.querySelector('button:not(:disabled)');
+  if (first) first.focus();
 }
 
 function onDocumentDown(event) {
@@ -115,6 +279,11 @@ function onDocumentDown(event) {
 
 function onDocumentKey(event) {
   if (!mounted || !host) return;
+  if (event.key === 'Escape' && menu) {
+    event.preventDefault();
+    closeMenu();
+    return;
+  }
   if (editor) return;
   const target = event.target;
   const tag = target && target.tagName ? target.tagName.toLowerCase() : '';
@@ -256,6 +425,10 @@ function openTerminalHere(path) {
   if (ctxRef && ctxRef.openTerminal) ctxRef.openTerminal('cd -- ' + shellQuote(path));
 }
 
+function moveTerminalHere(path) {
+  if (ctxRef && ctxRef.moveTerminal) ctxRef.moveTerminal('cd -- ' + shellQuote(path));
+}
+
 function nanoFile(path) {
   if (ctxRef && ctxRef.openTerminal) ctxRef.openTerminal('nano -- ' + shellQuote(path));
 }
@@ -283,20 +456,33 @@ async function refresh() {
 }
 
 async function load(path) {
-  if (loading) return;
-  loading = true;
+  const tab = currentTab();
+  if (!tab || !path) return;
+  const requestId = tab.requestId + 1;
+  tab.requestId = requestId;
+  tab.loading = true;
+  const previousSelection = activeTabId === tab.id ? selection : tab.selection;
   try {
     const data = await api.get('/api/files/list?path=' + encodeURIComponent(path || '') + '&hidden=' + (showHidden ? '1' : '0'));
-    cwd = data.path || path || '/';
-    entries = Array.isArray(data.entries) ? data.entries : [];
-    selection = new Set(Array.from(selection).filter((name) => entries.some((entry) => entry.name === name)));
-    lastIndex = -1;
-    renderAll();
+    if (!tabs.includes(tab) || tab.requestId !== requestId) return;
+    const nextEntries = Array.isArray(data.entries) ? data.entries : [];
+    tab.cwd = data.path || path || '/';
+    tab.title = tabTitle(tab.cwd);
+    tab.entries = nextEntries;
+    tab.selection = new Set(Array.from(previousSelection || []).filter((name) => nextEntries.some((entry) => entry.name === name)));
+    tab.lastIndex = -1;
+    tab.loaded = true;
+    if (activeTabId === tab.id) {
+      restoreTab(tab);
+      renderAll();
+    } else {
+      renderFileTabs();
+    }
     savePrefs();
   } catch (err) {
-    toast(err.message, 'danger');
+    if (activeTabId === tab.id && tab.requestId === requestId) toast(err.message, 'danger');
   } finally {
-    loading = false;
+    if (tab.requestId === requestId) tab.loading = false;
   }
 }
 
@@ -338,10 +524,41 @@ function renderCrumbs() {
   if (input && document.activeElement !== input) input.value = cwd;
 }
 
+function updateSelectionStyles() {
+  if (!host) return;
+  const rows = host.querySelectorAll('.files-list tbody tr[data-name]');
+  for (const row of rows) row.classList.toggle('selected', selection.has(row.dataset.name));
+}
+
 function renderRows() {
   if (!host) return;
   const body = host.querySelector('.files-list tbody');
   body.textContent = '';
+  const parent = h(
+    'tr',
+    {
+      class: 'parent-row',
+      dataset: { parent: 'true' },
+      ondblclick: () => navigate(parentOf(cwd)),
+      oncontextmenu: (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        selection = new Set();
+        updateSelectionStyles();
+        openMenu(event, null, parentOf(cwd));
+      }
+    },
+    h(
+      'td',
+      {},
+      h('div', { class: 'fname' }, glyph({ type: 'dir' }), h('span', { class: 'label', text: '..' }))
+    ),
+    h('td', { class: 'num mono', text: '\u2014' }),
+    h('td', { class: 'mono muted', text: '\u2014' }),
+    h('td', { class: 'mono muted', text: '\u2014' }),
+    h('td', { class: 'mono muted', text: '\u2014' })
+  );
+  body.appendChild(parent);
   if (!entries.length) {
     body.appendChild(h('tr', {}, h('td', { colspan: '5', class: 'empty', text: 'Empty directory' })));
     return;
@@ -366,7 +583,7 @@ function renderRows() {
             selection = new Set([entry.name]);
             lastIndex = index;
           }
-          renderRows();
+          updateSelectionStyles();
         },
         ondblclick: () => openEntry(entry),
         oncontextmenu: (event) => {
@@ -415,6 +632,8 @@ function renderUploads() {
 }
 
 function renderAll() {
+  captureActiveTab();
+  renderFileTabs();
   renderCrumbs();
   renderRows();
   renderUploads();
@@ -618,6 +837,7 @@ export async function mount(container, ctx) {
   ctxRef = ctx;
   mounted = true;
   host = h('div', { class: 'pane pane-files' });
+  const fileTabs = h('div', { class: 'file-tabs', 'aria-label': 'File tabs' });
   const crumbs = h('div', { class: 'crumbs' });
   const pathInput = h('input', {
     class: 'path-input',
@@ -656,6 +876,8 @@ export async function mount(container, ctx) {
     h('button', { class: 'btn btn-sm', type: 'button', title: 'Up one level', onclick: () => navigate(parentOf(cwd)) }, 'Up'),
     h('button', { class: 'btn btn-sm', type: 'button', title: 'Home directory', onclick: () => navigate((ctx.me && ctx.me.home) || '/') }, 'Home'),
     h('button', { class: 'btn btn-sm', type: 'button', title: 'Refresh', onclick: () => refresh() }, 'Refresh'),
+    h('button', { class: 'btn btn-sm', type: 'button', title: 'Open a new terminal in this directory', onclick: () => openTerminalHere(cwd) }, 'Open >_'),
+    h('button', { class: 'btn btn-sm', type: 'button', title: 'Move the active terminal to this directory', onclick: () => moveTerminalHere(cwd) }, 'Move >_'),
     crumbs,
     pathInput,
     h('button', { class: 'btn btn-sm', type: 'button', onclick: () => newFolder() }, 'New Folder'),
@@ -689,16 +911,17 @@ export async function mount(container, ctx) {
   );
   const uploadPanel = h('div', { class: 'uploads hidden' });
   list.addEventListener('mousedown', () => list.focus());
+  host.appendChild(fileTabs);
   host.appendChild(toolbar);
   host.appendChild(list);
   host.appendChild(uploadPanel);
   container.appendChild(host);
 
   host.addEventListener('contextmenu', (event) => {
-    if (event.target.closest('tr')) return;
+    if (event.target.closest('tr[data-name], tr[data-parent="true"]')) return;
     event.preventDefault();
     selection = new Set();
-    renderRows();
+    updateSelectionStyles();
     openMenu(event, null);
   });
   host.addEventListener('dragover', (event) => {
@@ -729,8 +952,23 @@ export async function mount(container, ctx) {
   const saved = prefs && prefs.files ? prefs.files : {};
   showHidden = saved.show_hidden === true;
   hiddenToggle.checked = showHidden;
-  const start = typeof saved.cwd === 'string' && saved.cwd ? saved.cwd : (ctx.me && ctx.me.home) || '/';
-  await load(start);
+  const home = (ctx.me && ctx.me.home) || '/';
+  const start = typeof saved.cwd === 'string' && saved.cwd ? saved.cwd : home;
+  const savedTabs = Array.isArray(saved.tabs) ? saved.tabs : [];
+  const seen = new Set();
+  tabs = [];
+  for (const item of savedTabs) {
+    if (!item || typeof item.cwd !== 'string' || !item.cwd) continue;
+    let id = typeof item.id === 'string' && /^[a-z0-9]{1,16}$/.test(item.id) ? item.id : newId();
+    if (seen.has(id)) id = newId();
+    seen.add(id);
+    tabs.push(makeTab(item.cwd, id));
+  }
+  if (!tabs.length) tabs.push(makeTab(start));
+  activeTabId = saved.active && tabs.some((tab) => tab.id === saved.active) ? saved.active : tabs[0].id;
+  restoreTab(currentTab());
+  renderAll();
+  await load(cwd || start);
 }
 
 export function unmount() {
@@ -755,6 +993,9 @@ export function destroy() {
   entries = [];
   selection = new Set();
   uploads = [];
+  tabs = [];
+  activeTabId = null;
+  cwd = '';
 }
 
 export function focus() {

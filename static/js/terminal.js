@@ -33,6 +33,99 @@ let tabs = [];
 let active = null;
 let saveTimer = null;
 let mounted = false;
+let menu = null;
+
+function closeMenu() {
+  if (menu) {
+    menu.remove();
+    menu = null;
+  }
+}
+
+function onDocumentDown(event) {
+  if (menu && !menu.contains(event.target)) closeMenu();
+}
+
+function onDocumentKey(event) {
+  if (event.key === 'Escape' && menu) {
+    event.preventDefault();
+    closeMenu();
+  }
+}
+
+async function copyText(text) {
+  if (!text) return;
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const area = h('textarea', { style: { position: 'fixed', left: '-1000px', top: '0' } });
+      area.value = text;
+      document.body.appendChild(area);
+      area.select();
+      const copied = document.execCommand('copy');
+      area.remove();
+      if (!copied) throw new Error('copy failed');
+    }
+  } catch (err) {
+    toast('Could not copy the selection', 'danger');
+  }
+}
+
+async function pasteText(tab) {
+  let text = null;
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      text = await navigator.clipboard.readText();
+    } catch (err) {
+      text = null;
+    }
+  }
+  if (text === null) text = await promptDialog('Paste into terminal', 'Text to paste', '');
+  if (text) sendInput(tab, text);
+}
+
+function openTerminalMenu(event, tab) {
+  closeMenu();
+  if (!tab) return;
+  if (tab.id !== active) selectTab(tab.id);
+  const selected = tab.term && tab.term.hasSelection() ? tab.term.getSelection() : '';
+  const items = [
+    { label: 'Copy selection', disabled: !selected, action: () => copyText(selected) },
+    { label: 'Paste', action: () => pasteText(tab) },
+    { sep: true },
+    { label: 'New terminal tab', action: () => addTab() }
+  ];
+  menu = h('div', { class: 'ctx-menu', role: 'menu', style: { left: event.clientX + 'px', top: event.clientY + 'px' } });
+  for (const item of items) {
+    if (item.sep) {
+      menu.appendChild(h('div', { class: 'ctx-sep' }));
+      continue;
+    }
+    menu.appendChild(
+      h(
+        'button',
+        {
+          class: 'ctx-item',
+          type: 'button',
+          role: 'menuitem',
+          disabled: item.disabled === true,
+          onclick: () => {
+            closeMenu();
+            item.action();
+          }
+        },
+        item.label
+      )
+    );
+  }
+  document.body.appendChild(menu);
+  const rect = menu.getBoundingClientRect();
+  if (rect.bottom > window.innerHeight) menu.style.top = Math.max(6, window.innerHeight - rect.height - 6) + 'px';
+  if (rect.right > window.innerWidth) menu.style.left = Math.max(6, window.innerWidth - rect.width - 6) + 'px';
+  const first = menu.querySelector('button:not(:disabled)');
+  if (first) first.focus();
+}
 
 function newId() {
   let id = '';
@@ -65,6 +158,15 @@ function send(tab, payload) {
     return true;
   }
   return false;
+}
+
+function sendInput(tab, data) {
+  if (!tab || !data) return;
+  if (tab.ended) {
+    tab.ended = false;
+    connect(tab);
+  }
+  if (!send(tab, { t: 'i', d: data })) tab.pending = (tab.pending || '') + data;
 }
 
 function connect(tab) {
@@ -174,15 +276,8 @@ function ensureTerm(tab) {
   tab.term.loadAddon(tab.fit);
   tab.term.open(tab.hostEl);
   tab.term.onData((data) => {
-    if (tab.ended) {
-      tab.ended = false;
-      if (tab.term) tab.term.write('\r\n');
-      connect(tab);
-      return;
-    }
-    if (!send(tab, { t: 'i', d: data })) {
-      tab.pending = (tab.pending || '') + data;
-    }
+    if (tab.ended && tab.term) tab.term.write('\r\n');
+    sendInput(tab, data);
   });
   tab.observer = new ResizeObserver(() => {
     if (tab.fitTimer) clearTimeout(tab.fitTimer);
@@ -363,6 +458,19 @@ export async function mount(container, ctx) {
   host.appendChild(body);
   container.appendChild(host);
   mounted = true;
+  body.addEventListener(
+    'contextmenu',
+    (event) => {
+      const tab = tabs.find((item) => item.hostEl && item.hostEl.contains(event.target)) || tabs.find((item) => item.id === active);
+      if (!tab) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openTerminalMenu(event, tab);
+    },
+    true
+  );
+  document.addEventListener('mousedown', onDocumentDown);
+  document.addEventListener('keydown', onDocumentKey);
 
   let prefs = {};
   let sessions = [];
@@ -447,6 +555,9 @@ export async function mount(container, ctx) {
 
 export function unmount() {
   mounted = false;
+  closeMenu();
+  document.removeEventListener('mousedown', onDocumentDown);
+  document.removeEventListener('keydown', onDocumentKey);
   if (saveTimer) {
     clearTimeout(saveTimer);
     saveTimer = null;
@@ -454,11 +565,7 @@ export function unmount() {
 }
 
 export function destroy() {
-  mounted = false;
-  if (saveTimer) {
-    clearTimeout(saveTimer);
-    saveTimer = null;
-  }
+  unmount();
   for (const tab of tabs) {
     tab.closed = true;
     if (tab.retryTimer) clearTimeout(tab.retryTimer);
@@ -495,6 +602,16 @@ export function openInTerminal(command) {
   if (!mounted || !host) return;
   const tab = addTab(null, null, command ? command + '\r' : null);
   if (tab && tab.term) tab.term.focus();
+}
+
+export function runInActiveTerminal(command) {
+  if (!mounted || !host || !command) return;
+  let tab = tabs.find((item) => item.id === active);
+  if (!tab) tab = addTab();
+  ensureTerm(tab);
+  connect(tab);
+  sendInput(tab, command + '\r');
+  if (tab.term) tab.term.focus();
 }
 
 export function shellQuote(path) {

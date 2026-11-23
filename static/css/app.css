@@ -980,7 +980,8 @@ th.num {
   display: none;
 }
 
-.term-tabs {
+.term-tabs,
+.file-tabs {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -990,7 +991,8 @@ th.num {
   overflow-x: auto;
 }
 
-.term-tab {
+.term-tab,
+.file-tab {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1005,18 +1007,27 @@ th.num {
   white-space: nowrap;
 }
 
-.term-tab:hover {
+.term-tab:hover,
+.file-tab:hover {
   background: var(--panel);
   color: var(--text);
 }
 
-.term-tab.active {
+.term-tab.active,
+.file-tab.active {
   background: var(--bg);
   border-color: var(--border);
   color: var(--text);
 }
 
-.term-tab .close {
+.file-tab > span {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.term-tab .close,
+.file-tab .close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1031,9 +1042,15 @@ th.num {
   cursor: pointer;
 }
 
-.term-tab .close:hover {
+.term-tab .close:hover,
+.file-tab .close:hover {
   background: rgba(255, 159, 182, 0.2);
   color: var(--rose);
+}
+
+.parent-row .label {
+  font-family: var(--mono);
+  font-weight: 600;
 }
 
 .term-body {
