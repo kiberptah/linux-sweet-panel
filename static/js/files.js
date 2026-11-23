@@ -19,6 +19,7 @@ let tabs = [];
 let activeTabId = null;
 
 const ID_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
+const HISTORY_LIMIT = 50;
 
 function newId() {
   const bytes = new Uint8Array(8);
@@ -42,6 +43,8 @@ function makeTab(path, id) {
     id: id || newId(),
     title: tabTitle(path),
     cwd: path || '/',
+    history: [path || '/'],
+    historyIndex: 0,
     entries: [],
     selection: new Set(),
     lastIndex: -1,
@@ -80,11 +83,40 @@ function savePrefs() {
           cwd,
           show_hidden: showHidden,
           active: activeTabId,
-          tabs: tabs.map((tab) => ({ id: tab.id, title: tab.title, cwd: tab.cwd }))
+          tabs: tabs.map((tab) => ({
+            id: tab.id,
+            title: tab.title,
+            cwd: tab.cwd,
+            history: tab.history,
+            history_index: tab.historyIndex
+          }))
         }
       })
       .catch((err) => toast(err.message, 'danger'));
   }, 300);
+}
+
+function renderHistoryButtons() {
+  if (!host) return;
+  const previous = host.querySelector('.history-previous');
+  const next = host.querySelector('.history-next');
+  if (!previous || !next) return;
+  const tab = currentTab();
+  const index = tab ? tab.historyIndex : 0;
+  const previousPath = tab && index > 0 ? tab.history[index - 1] : null;
+  const nextPath = tab && index < tab.history.length - 1 ? tab.history[index + 1] : null;
+  previous.disabled = !tab || tab.loading || !previousPath;
+  next.disabled = !tab || tab.loading || !nextPath;
+  previous.title = previousPath ? 'Previous: ' + previousPath : 'No previous directory';
+  next.title = nextPath ? 'Next: ' + nextPath : 'No next directory';
+}
+
+function goHistory(offset) {
+  const tab = currentTab();
+  if (!tab || tab.loading) return;
+  const index = tab.historyIndex + offset;
+  if (index < 0 || index >= tab.history.length) return;
+  load(tab.history[index], { type: 'index', index });
 }
 
 function renderFileTabs() {
@@ -448,25 +480,43 @@ function openEntry(entry) {
 
 async function navigate(path) {
   if (!path) return;
-  await load(path);
+  await load(path, { type: 'push' });
 }
 
 async function refresh() {
   await load(cwd);
 }
 
-async function load(path) {
+async function load(path, historyAction = null) {
   const tab = currentTab();
   if (!tab || !path) return;
   const requestId = tab.requestId + 1;
   tab.requestId = requestId;
   tab.loading = true;
+  if (activeTabId === tab.id) renderHistoryButtons();
   const previousSelection = activeTabId === tab.id ? selection : tab.selection;
   try {
     const data = await api.get('/api/files/list?path=' + encodeURIComponent(path || '') + '&hidden=' + (showHidden ? '1' : '0'));
     if (!tabs.includes(tab) || tab.requestId !== requestId) return;
     const nextEntries = Array.isArray(data.entries) ? data.entries : [];
-    tab.cwd = data.path || path || '/';
+    const resolvedPath = data.path || path || '/';
+    if (historyAction && historyAction.type === 'push') {
+      if (resolvedPath !== tab.history[tab.historyIndex]) {
+        let history = tab.history.slice(0, tab.historyIndex + 1);
+        history.push(resolvedPath);
+        if (history.length > HISTORY_LIMIT) history = history.slice(history.length - HISTORY_LIMIT);
+        tab.history = history;
+        tab.historyIndex = history.length - 1;
+      }
+    } else if (historyAction && historyAction.type === 'index') {
+      if (historyAction.index >= 0 && historyAction.index < tab.history.length) {
+        tab.historyIndex = historyAction.index;
+        tab.history[historyAction.index] = resolvedPath;
+      }
+    } else {
+      tab.history[tab.historyIndex] = resolvedPath;
+    }
+    tab.cwd = resolvedPath;
     tab.title = tabTitle(tab.cwd);
     tab.entries = nextEntries;
     tab.selection = new Set(Array.from(previousSelection || []).filter((name) => nextEntries.some((entry) => entry.name === name)));
@@ -482,7 +532,10 @@ async function load(path) {
   } catch (err) {
     if (activeTabId === tab.id && tab.requestId === requestId) toast(err.message, 'danger');
   } finally {
-    if (tab.requestId === requestId) tab.loading = false;
+    if (tab.requestId === requestId) {
+      tab.loading = false;
+      if (activeTabId === tab.id) renderHistoryButtons();
+    }
   }
 }
 
@@ -634,6 +687,7 @@ function renderUploads() {
 function renderAll() {
   captureActiveTab();
   renderFileTabs();
+  renderHistoryButtons();
   renderCrumbs();
   renderRows();
   renderUploads();
@@ -873,6 +927,30 @@ export async function mount(container, ctx) {
   const toolbar = h(
     'div',
     { class: 'files-toolbar' },
+    h(
+      'button',
+      {
+        class: 'btn btn-sm history-previous',
+        type: 'button',
+        title: 'No previous directory',
+        'aria-label': 'Previous directory',
+        disabled: true,
+        onclick: () => goHistory(-1)
+      },
+      'Previous'
+    ),
+    h(
+      'button',
+      {
+        class: 'btn btn-sm history-next',
+        type: 'button',
+        title: 'No next directory',
+        'aria-label': 'Next directory',
+        disabled: true,
+        onclick: () => goHistory(1)
+      },
+      'Next'
+    ),
     h('button', { class: 'btn btn-sm', type: 'button', title: 'Up one level', onclick: () => navigate(parentOf(cwd)) }, 'Up'),
     h('button', { class: 'btn btn-sm', type: 'button', title: 'Home directory', onclick: () => navigate((ctx.me && ctx.me.home) || '/') }, 'Home'),
     h('button', { class: 'btn btn-sm', type: 'button', title: 'Refresh', onclick: () => refresh() }, 'Refresh'),
@@ -962,7 +1040,18 @@ export async function mount(container, ctx) {
     let id = typeof item.id === 'string' && /^[a-z0-9]{1,16}$/.test(item.id) ? item.id : newId();
     if (seen.has(id)) id = newId();
     seen.add(id);
-    tabs.push(makeTab(item.cwd, id));
+    const tab = makeTab(item.cwd, id);
+    const savedHistory = Array.isArray(item.history)
+      ? item.history.filter((path) => typeof path === 'string' && path).slice(-HISTORY_LIMIT)
+      : [];
+    if (savedHistory.length) {
+      tab.history = savedHistory;
+      tab.historyIndex = Number.isInteger(item.history_index)
+        ? Math.max(0, Math.min(savedHistory.length - 1, item.history_index))
+        : savedHistory.length - 1;
+      tab.history[tab.historyIndex] = item.cwd;
+    }
+    tabs.push(tab);
   }
   if (!tabs.length) tabs.push(makeTab(start));
   activeTabId = saved.active && tabs.some((tab) => tab.id === saved.active) ? saved.active : tabs[0].id;
