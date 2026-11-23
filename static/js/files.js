@@ -478,8 +478,45 @@ function openEntry(entry) {
   editFile(path);
 }
 
+function setPathEditing(editing) {
+  if (!host) return;
+  const input = host.querySelector('.path-input');
+  if (!input) return;
+  const visibility = [
+    ['.crumbs', editing],
+    ['.path-input', !editing],
+    ['.path-edit', editing],
+    ['.path-save', !editing],
+    ['.path-cancel', !editing]
+  ];
+  for (const [selector, hidden] of visibility) {
+    const element = host.querySelector(selector);
+    if (element) element.classList.toggle('hidden', hidden);
+  }
+  input.value = cwd;
+  if (editing) {
+    input.focus();
+    input.select();
+  } else if (document.activeElement === input) {
+    input.blur();
+  }
+}
+
+function submitPathEdit() {
+  if (!host) return;
+  const input = host.querySelector('.path-input');
+  const value = input ? input.value.trim() : '';
+  if (!value) return;
+  if (value === cwd) {
+    setPathEditing(false);
+    return;
+  }
+  navigate(value);
+}
+
 async function navigate(path) {
   if (!path) return;
+  setPathEditing(false);
   await load(path, { type: 'push' });
 }
 
@@ -935,9 +972,14 @@ const TOOLBAR_ICONS = {
     ['path', { d: 'M11 13h4' }],
     ['rect', { width: '18', height: '18', x: '3', y: '3', rx: '2', ry: '2' }]
   ],
-  terminal: [
-    ['path', { d: 'M12 19h8' }],
-    ['path', { d: 'm4 17 6-6-6-6' }]
+  'square-pen': [
+    ['path', { d: 'M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7' }],
+    ['path', { d: 'M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z' }]
+  ],
+  check: [['path', { d: 'M20 6 9 17l-5-5' }]],
+  x: [
+    ['path', { d: 'M18 6 6 18' }],
+    ['path', { d: 'm6 6 12 12' }]
   ]
 };
 
@@ -986,15 +1028,20 @@ export async function mount(container, ctx) {
   const fileTabs = h('div', { class: 'file-tabs', 'aria-label': 'File tabs' });
   const crumbs = h('div', { class: 'crumbs' });
   const pathInput = h('input', {
-    class: 'path-input',
+    class: 'path-input hidden',
     type: 'text',
     spellcheck: 'false',
     'aria-label': 'Path',
     onkeydown: (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
-        const value = pathInput.value.trim();
-        if (value) navigate(value);
+        submitPathEdit();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        setPathEditing(false);
+        const editButton = host.querySelector('.path-edit');
+        if (editButton) editButton.focus();
       }
     }
   });
@@ -1027,7 +1074,26 @@ export async function mount(container, ctx) {
         iconName: 'home',
         onClick: () => navigate((ctx.me && ctx.me.home) || '/')
       }),
+      crumbs,
       pathInput,
+      toolbarButton({
+        className: 'path-edit',
+        label: 'Edit path',
+        iconName: 'square-pen',
+        onClick: () => setPathEditing(true)
+      }),
+      toolbarButton({
+        className: 'path-save hidden',
+        label: 'Confirm path',
+        iconName: 'check',
+        onClick: () => submitPathEdit()
+      }),
+      toolbarButton({
+        className: 'path-cancel hidden',
+        label: 'Cancel path editing',
+        iconName: 'x',
+        onClick: () => setPathEditing(false)
+      }),
       toolbarButton({
         label: 'Open a new terminal in this directory',
         iconName: ['square-terminal', 'plus'],
@@ -1060,8 +1126,7 @@ export async function mount(container, ctx) {
       toolbarButton({ label: 'New folder', iconName: 'folder-plus', onClick: () => newFolder() }),
       toolbarButton({ label: 'New file', iconName: 'file-plus', onClick: () => newFile() }),
       toolbarButton({ label: 'Upload files', iconName: 'upload', onClick: () => fileInput.click() }),
-      h('label', { class: 'check', style: { fontSize: '12px' } }, hiddenToggle, h('span', { text: 'Hidden' })),
-      crumbs
+      h('label', { class: 'check', style: { fontSize: '12px' } }, hiddenToggle, h('span', { text: 'Hidden' }))
     ),
     fileInput
   );
