@@ -53,6 +53,10 @@ function onDocumentKey(event) {
   }
 }
 
+function keepRightClickInGui(event) {
+  if (event.button === 2) event.stopPropagation();
+}
+
 async function copyText(text) {
   if (!text) return;
   try {
@@ -484,6 +488,9 @@ export async function mount(container, ctx) {
   host.appendChild(body);
   container.appendChild(host);
   mounted = true;
+  // Right-clicks belong to the GUI menu, not tmux or the running terminal app.
+  body.addEventListener('mousedown', keepRightClickInGui, true);
+  body.addEventListener('mouseup', keepRightClickInGui, true);
   body.addEventListener(
     'contextmenu',
     (event) => {
