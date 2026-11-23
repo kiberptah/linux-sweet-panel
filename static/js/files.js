@@ -573,7 +573,12 @@ function searchFiles() {
     status.textContent = 'Searching ' + directory + '…';
     try {
       const data = await api.get(
-        '/api/files/search?path=' + encodeURIComponent(directory) + '&q=' + encodeURIComponent(query) + '&hidden=' + (showHidden ? '1' : '0')
+        '/api/files/search?path=' +
+          encodeURIComponent(directory) +
+          '&q=' +
+          encodeURIComponent(query) +
+          '&hidden=' +
+          (searchHiddenToggle.checked ? '1' : '0')
       );
       if (currentRequest !== requestId) return;
       items = Array.isArray(data.entries) ? data.entries : [];
@@ -596,10 +601,21 @@ function searchFiles() {
   }
 
   const searchButton = h('button', { class: 'btn btn-primary', type: 'button', onclick: () => runSearch() }, 'Search');
+  const searchHiddenToggle = h('input', {
+    type: 'checkbox',
+    checked: showHidden,
+    'aria-label': 'Include hidden files and folders'
+  });
   const body = h(
     'div',
     { class: 'file-search' },
-    h('div', { class: 'file-search-form' }, input, searchButton),
+    h(
+      'div',
+      { class: 'file-search-form' },
+      input,
+      h('label', { class: 'check', style: { fontSize: '12px' } }, searchHiddenToggle, h('span', { text: 'Hidden' })),
+      searchButton
+    ),
     status,
     results
   );
