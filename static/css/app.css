@@ -1168,11 +1168,23 @@ th.num {
   display: flex;
   align-items: center;
   width: 24px;
+  padding: 0;
+  border: none;
   background: var(--panel-2);
   color: var(--muted);
   font-family: var(--mono);
   font-size: 12px;
-  pointer-events: none;
+  cursor: pointer;
+}
+
+.crumb-overflow:hover {
+  background: var(--panel);
+  color: var(--text);
+}
+
+.crumb-overflow:focus-visible {
+  outline: 2px solid var(--lavender);
+  outline-offset: -2px;
 }
 
 .crumb-overflow-start {

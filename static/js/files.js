@@ -774,19 +774,23 @@ function updateCrumbOverflow() {
   end.classList.toggle('hidden', maxScroll <= 1 || position >= maxScroll - 1);
 }
 
+function scrollCrumbsBy(crumbs, delta) {
+  const maxScroll = Math.max(0, crumbs.scrollWidth - crumbs.clientWidth);
+  const next = Math.max(0, Math.min(maxScroll, crumbs.scrollLeft + delta));
+  if (next === crumbs.scrollLeft) return false;
+  crumbs.scrollLeft = next;
+  updateCrumbOverflow();
+  return true;
+}
+
 function onCrumbWheel(event) {
   const crumbs = event.currentTarget;
-  const maxScroll = Math.max(0, crumbs.scrollWidth - crumbs.clientWidth);
-  if (maxScroll <= 0) return;
+  if (crumbs.scrollWidth <= crumbs.clientWidth) return;
   let delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
   if (event.deltaMode === 1) delta *= 16;
   else if (event.deltaMode === 2) delta *= crumbs.clientWidth;
-  if (!delta) return;
-  const next = Math.max(0, Math.min(maxScroll, crumbs.scrollLeft + delta));
-  if (next === crumbs.scrollLeft) return;
+  if (!delta || !scrollCrumbsBy(crumbs, delta)) return;
   event.preventDefault();
-  crumbs.scrollLeft = next;
-  updateCrumbOverflow();
 }
 
 function renderCrumbs() {
@@ -1233,8 +1237,28 @@ export async function mount(container, ctx) {
     'div',
     { class: 'crumbs-shell' },
     crumbs,
-    h('span', { class: 'crumb-overflow crumb-overflow-start hidden', 'aria-hidden': 'true' }, '...'),
-    h('span', { class: 'crumb-overflow crumb-overflow-end hidden', 'aria-hidden': 'true' }, '...')
+    h(
+      'button',
+      {
+        class: 'crumb-overflow crumb-overflow-start hidden',
+        type: 'button',
+        title: 'Scroll path left',
+        'aria-label': 'Scroll path left',
+        onclick: () => scrollCrumbsBy(crumbs, -Math.max(40, crumbs.clientWidth * 0.8))
+      },
+      '...'
+    ),
+    h(
+      'button',
+      {
+        class: 'crumb-overflow crumb-overflow-end hidden',
+        type: 'button',
+        title: 'Scroll path right',
+        'aria-label': 'Scroll path right',
+        onclick: () => scrollCrumbsBy(crumbs, Math.max(40, crumbs.clientWidth * 0.8))
+      },
+      '...'
+    )
   );
   const pathInput = h('input', {
     class: 'path-input hidden',
