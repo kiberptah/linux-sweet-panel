@@ -11,8 +11,8 @@ DEFAULTS = {
     "admin_groups": ["sudo", "wheel", "admin"],
     "login_group": "",
     "pam_service": "linuxpanel",
-    "repo": "https://github.com/YOUR_GITHUB_USER/linuxpanel.git",
-    "branch": "main",
+    "repo": "https://github.com/kiberptah/linux-sweet-panel.git",
+    "branch": "master",
     "max_upload_mb": 4096,
     "service_name": "linuxpanel",
 }

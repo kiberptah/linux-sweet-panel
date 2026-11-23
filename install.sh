@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LP_REPO="${LP_REPO:-https://github.com/YOUR_GITHUB_USER/linuxpanel.git}"
-LP_BRANCH="${LP_BRANCH:-main}"
+LP_REPO="${LP_REPO:-https://github.com/kiberptah/linux-sweet-panel.git}"
+LP_BRANCH="${LP_BRANCH:-master}"
 LP_PORT="${LP_PORT:-4080}"
 LP_DIR="${LP_DIR:-/opt/linuxpanel}"
 LP_BIND="${LP_BIND:-0.0.0.0}"

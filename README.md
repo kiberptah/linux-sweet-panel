@@ -29,7 +29,7 @@ Screenshots: none yet.
 One command:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/linuxpanel/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/kiberptah/linux-sweet-panel/master/install.sh | sudo bash
 ```
 
 From a local checkout:
@@ -46,15 +46,15 @@ Every option is an environment variable:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `LP_REPO` | `https://github.com/YOUR_GITHUB_USER/linuxpanel.git` | git remote to clone |
-| `LP_BRANCH` | `main` | branch to clone and track |
+| `LP_REPO` | `https://github.com/kiberptah/linux-sweet-panel.git` | git remote to clone |
+| `LP_BRANCH` | `master` | branch to clone and track |
 | `LP_PORT` | `4080` | listen port |
 | `LP_DIR` | `/opt/linuxpanel` | install directory |
 | `LP_BIND` | `0.0.0.0` | bind address |
 | `LP_NO_TLS` | unset | set to any value to serve plain HTTP |
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/linuxpanel/main/install.sh | sudo LP_PORT=4443 bash
+curl -fsSL https://raw.githubusercontent.com/kiberptah/linux-sweet-panel/master/install.sh | sudo LP_PORT=4443 bash
 ```
 
 ```sh
@@ -96,8 +96,8 @@ The certificate and key live in `/etc/linuxpanel/cert.pem` and `/etc/linuxpanel/
 | `admin_groups` | `["sudo", "wheel", "admin"]` | groups that grant admin rights |
 | `login_group` | `""` | if set, only members of this group may log in (root always may) |
 | `pam_service` | `"linuxpanel"` | PAM service name, i.e. `/etc/pam.d/linuxpanel` |
-| `repo` | `"https://github.com/YOUR_GITHUB_USER/linuxpanel.git"` | git remote used by self-update |
-| `branch` | `"main"` | branch used by self-update |
+| `repo` | `"https://github.com/kiberptah/linux-sweet-panel.git"` | git remote used by self-update |
+| `branch` | `"master"` | branch used by self-update |
 | `max_upload_mb` | `4096` | upload size limit |
 | `service_name` | `"linuxpanel"` | systemd unit restarted after an update |
 
