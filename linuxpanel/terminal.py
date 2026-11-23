@@ -94,6 +94,69 @@ def _tmux(username, args, timeout=10):
     return proc.returncode, out or b"", err or b""
 
 
+def _target(session_id):
+    if not isinstance(session_id, str) or not ID_RE.match(session_id):
+        raise ApiError(400, "invalid session id")
+    return "lp-" + session_id
+
+
+def _terminal_state(username, session_id):
+    code, out, err = _tmux(
+        username,
+        [
+            "display-message",
+            "-p",
+            "-t",
+            _target(session_id),
+            "#{window_panes}\t#{pane_marked}\t#{pane_marked_set}\t#{window_zoomed_flag}\t#{pane_in_mode}",
+        ],
+    )
+    if code != 0:
+        message = err.decode("utf-8", "replace").strip() or "session not found"
+        raise ApiError(400, message)
+    fields = out.decode("utf-8", "replace").strip().split("\t")
+    if len(fields) != 5:
+        raise ApiError(500, "unexpected tmux state")
+    return {
+        "panes": _clamp(fields[0], 1, 1, 10000),
+        "marked": fields[1] == "1",
+        "marked_set": fields[2] == "1",
+        "zoomed": fields[3] == "1",
+        "in_mode": fields[4] == "1",
+    }
+
+
+def _action_commands(action, target, text):
+    if action in ("search-selection", "type-selection"):
+        if not isinstance(text, str) or not text or len(text) > 10000:
+            raise ApiError(400, "invalid selection")
+        if action == "search-selection":
+            return [
+                ["copy-mode", "-t", target],
+                ["send-keys", "-X", "-t", target, "search-backward", "--", text],
+            ]
+        return [
+            ["copy-mode", "-q", "-t", target],
+            ["send-keys", "-l", "-t", target, "--", text],
+        ]
+    commands = {
+        "split-horizontal": [["split-window", "-h", "-t", target, "-c", "#{pane_current_path}"]],
+        "split-vertical": [["split-window", "-v", "-t", target, "-c", "#{pane_current_path}"]],
+        "swap-up": [["swap-pane", "-U", "-t", target]],
+        "swap-down": [["swap-pane", "-D", "-t", target]],
+        "swap-marked": [["swap-pane", "-t", target]],
+        "kill-pane": [["kill-pane", "-t", target]],
+        "respawn-pane": [["respawn-pane", "-k", "-t", target]],
+        "toggle-mark": [["select-pane", "-m", "-t", target]],
+        "toggle-zoom": [["resize-pane", "-Z", "-t", target]],
+        "history-top": [["send-keys", "-X", "-t", target, "history-top"]],
+        "history-bottom": [["send-keys", "-X", "-t", target, "history-bottom"]],
+    }
+    if action not in commands:
+        raise ApiError(400, "invalid terminal action")
+    return commands[action]
+
+
 @route("GET", "/api/terminal/sessions")
 def api_terminal_sessions(req):
     code, out, _ = _tmux(req.user.name, ["list-sessions", "-F", "#{session_name}"])
@@ -128,6 +191,25 @@ def api_terminal_status(req):
     return {"running": running}
 
 
+@route("GET", "/api/terminal/pane-state")
+def api_terminal_pane_state(req):
+    session_id = (req.query.get("id") or "").strip()
+    return _terminal_state(req.user.name, session_id)
+
+
+@route("POST", "/api/terminal/action")
+def api_terminal_action(req):
+    data = req.json()
+    target = _target(data.get("id"))
+    commands = _action_commands(data.get("action"), target, data.get("text"))
+    for args in commands:
+        code, _, err = _tmux(req.user.name, args)
+        if code != 0:
+            message = err.decode("utf-8", "replace").strip() or "terminal action failed"
+            raise ApiError(400, message)
+    return {"ok": True}
+
+
 @route("POST", "/api/terminal/kill")
 def api_terminal_kill(req):
     data = req.json()
@@ -154,6 +236,7 @@ def ws_terminal(req, ws):
         ws.close(1011)
         return
     user = req.user
+    _tmux(user.name, ["source-file", TMUX_CONF])
     cwd = user.home if user.home and os.path.isdir(user.home) else "/"
     master, slave = os.openpty()
     try:

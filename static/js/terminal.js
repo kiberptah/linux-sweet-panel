@@ -34,8 +34,10 @@ let active = null;
 let saveTimer = null;
 let mounted = false;
 let menu = null;
+let menuSerial = 0;
 
 function closeMenu() {
+  menuSerial += 1;
   if (menu) {
     menu.remove();
     menu = null;
@@ -51,10 +53,6 @@ function onDocumentKey(event) {
     event.preventDefault();
     closeMenu();
   }
-}
-
-function keepRightClickInGui(event) {
-  if (event.button === 2) event.stopPropagation();
 }
 
 async function copyText(text) {
@@ -89,17 +87,102 @@ async function pasteText(tab) {
   if (text) sendInput(tab, text);
 }
 
-function openTerminalMenu(event, tab) {
+function terminalLineAt(tab, event) {
+  try {
+    if (!tab.term || !tab.term.element || !tab.term.buffer) return '';
+    const screen = tab.term.element.querySelector('.xterm-screen');
+    const buffer = tab.term.buffer.active;
+    if (!screen || !buffer || !tab.term.rows) return '';
+    const rect = screen.getBoundingClientRect();
+    if (!rect.height || event.clientY < rect.top || event.clientY >= rect.bottom) return '';
+    const row = Math.max(0, Math.min(tab.term.rows - 1, Math.floor(((event.clientY - rect.top) / rect.height) * tab.term.rows)));
+    const line = buffer.getLine(buffer.viewportY + row);
+    return line ? line.translateToString(true) : '';
+  } catch (err) {
+    return '';
+  }
+}
+
+async function runTerminalAction(tab, action, text) {
+  const payload = { id: tab.id, action };
+  if (text !== undefined) payload.text = text;
+  try {
+    await api.post('/api/terminal/action', payload);
+    if (tab.term) tab.term.focus();
+  } catch (err) {
+    toast(err.message, 'danger');
+  }
+}
+
+async function openTerminalMenu(event, tab) {
   closeMenu();
+  const serial = ++menuSerial;
   if (!tab) return;
   if (tab.id !== active) selectTab(tab.id);
   const selected = tab.term && tab.term.hasSelection() ? tab.term.getSelection() : '';
-  const items = [
+  const line = terminalLineAt(tab, event);
+  // Let tmux select the clicked pane before the state request reaches the server.
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  if (serial !== menuSerial || !mounted || !tabs.includes(tab)) return;
+  let state = null;
+  try {
+    state = await api.get('/api/terminal/pane-state?id=' + encodeURIComponent(tab.id));
+  } catch (err) {
+    toast(err.message, 'danger');
+  }
+  if (serial !== menuSerial || !mounted || !tabs.includes(tab)) return;
+  const unavailable = !state;
+  const inMode = state && state.in_mode;
+  const multiplePanes = state && state.panes > 1;
+  const items = [];
+  if (inMode) {
+    items.push(
+      { label: 'Go to top', action: () => runTerminalAction(tab, 'history-top') },
+      { label: 'Go to bottom', action: () => runTerminalAction(tab, 'history-bottom') },
+      { sep: true }
+    );
+  }
+  items.push(
     { label: 'Copy selection', disabled: !selected, action: () => copyText(selected) },
-    { label: 'Paste', action: () => pasteText(tab) },
+    { label: 'Copy line', disabled: !line, action: () => copyText(line) },
+    { label: 'Paste', disabled: inMode === true, action: () => pasteText(tab) },
     { sep: true },
-    { label: 'New terminal tab', action: () => addTab() }
-  ];
+    {
+      label: 'Search selection',
+      disabled: unavailable || !selected,
+      action: () => runTerminalAction(tab, 'search-selection', selected)
+    },
+    {
+      label: 'Type selection',
+      disabled: unavailable || !selected,
+      action: () => runTerminalAction(tab, 'type-selection', selected)
+    },
+    { sep: true },
+    { label: 'New terminal tab', action: () => addTab() },
+    { label: 'Horizontal split', disabled: unavailable, action: () => runTerminalAction(tab, 'split-horizontal') },
+    { label: 'Vertical split', disabled: unavailable, action: () => runTerminalAction(tab, 'split-vertical') },
+    { sep: true },
+    { label: 'Swap up', disabled: multiplePanes !== true, action: () => runTerminalAction(tab, 'swap-up') },
+    { label: 'Swap down', disabled: multiplePanes !== true, action: () => runTerminalAction(tab, 'swap-down') },
+    {
+      label: 'Swap marked',
+      disabled: unavailable || !state.marked_set,
+      action: () => runTerminalAction(tab, 'swap-marked')
+    },
+    { sep: true },
+    { label: 'Kill pane', disabled: unavailable, danger: true, action: () => runTerminalAction(tab, 'kill-pane') },
+    { label: 'Respawn pane', disabled: unavailable, action: () => runTerminalAction(tab, 'respawn-pane') },
+    {
+      label: state && state.marked ? 'Unmark pane' : 'Mark pane',
+      disabled: unavailable,
+      action: () => runTerminalAction(tab, 'toggle-mark')
+    },
+    {
+      label: state && state.zoomed ? 'Unzoom pane' : 'Zoom pane',
+      disabled: multiplePanes !== true,
+      action: () => runTerminalAction(tab, 'toggle-zoom')
+    }
+  );
   menu = h('div', { class: 'ctx-menu', role: 'menu', style: { left: event.clientX + 'px', top: event.clientY + 'px' } });
   for (const item of items) {
     if (item.sep) {
@@ -110,7 +193,7 @@ function openTerminalMenu(event, tab) {
       h(
         'button',
         {
-          class: 'ctx-item',
+          class: 'ctx-item' + (item.danger ? ' danger' : ''),
           type: 'button',
           role: 'menuitem',
           disabled: item.disabled === true,
@@ -488,9 +571,6 @@ export async function mount(container, ctx) {
   host.appendChild(body);
   container.appendChild(host);
   mounted = true;
-  // Right-clicks belong to the GUI menu, not tmux or the running terminal app.
-  body.addEventListener('mousedown', keepRightClickInGui, true);
-  body.addEventListener('mouseup', keepRightClickInGui, true);
   body.addEventListener(
     'contextmenu',
     (event) => {

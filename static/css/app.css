@@ -792,6 +792,8 @@ th.num {
   position: fixed;
   z-index: 150;
   min-width: 190px;
+  max-height: calc(100vh - 12px);
+  overflow-y: auto;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
