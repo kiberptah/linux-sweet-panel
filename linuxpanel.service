@@ -1,0 +1,16 @@
+[Unit]
+Description=LinuxPanel web control panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/linuxpanel
+ExecStart=/usr/bin/python3 -m linuxpanel --config /etc/linuxpanel/config.json
+Restart=always
+RestartSec=3
+KillMode=process
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
