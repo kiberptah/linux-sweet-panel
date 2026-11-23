@@ -1293,7 +1293,14 @@ th.num {
 }
 
 .files-list table {
+  width: max-content;
+  min-width: 100%;
   font-size: 12.5px;
+}
+
+.files-list th,
+.files-list td {
+  white-space: nowrap;
 }
 
 .files-list td {
