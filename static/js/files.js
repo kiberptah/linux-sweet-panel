@@ -17,6 +17,7 @@ let menu = null;
 let uploads = [];
 let tabs = [];
 let activeTabId = null;
+let crumbsObserver = null;
 
 const ID_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
 const HISTORY_LIMIT = 50;
@@ -647,7 +648,7 @@ function setPathEditing(editing) {
   const input = host.querySelector('.path-input');
   if (!input) return;
   const visibility = [
-    ['.crumbs', editing],
+    ['.crumbs-shell', editing],
     ['.path-input', !editing],
     ['.path-edit', editing],
     ['.path-save', !editing],
@@ -761,6 +762,33 @@ function glyph(entry) {
   return svg;
 }
 
+function updateCrumbOverflow() {
+  if (!host) return;
+  const crumbs = host.querySelector('.crumbs');
+  const start = host.querySelector('.crumb-overflow-start');
+  const end = host.querySelector('.crumb-overflow-end');
+  if (!crumbs || !start || !end) return;
+  const maxScroll = Math.max(0, crumbs.scrollWidth - crumbs.clientWidth);
+  const position = Math.max(0, Math.min(maxScroll, crumbs.scrollLeft));
+  start.classList.toggle('hidden', maxScroll <= 1 || position <= 1);
+  end.classList.toggle('hidden', maxScroll <= 1 || position >= maxScroll - 1);
+}
+
+function onCrumbWheel(event) {
+  const crumbs = event.currentTarget;
+  const maxScroll = Math.max(0, crumbs.scrollWidth - crumbs.clientWidth);
+  if (maxScroll <= 0) return;
+  let delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+  if (event.deltaMode === 1) delta *= 16;
+  else if (event.deltaMode === 2) delta *= crumbs.clientWidth;
+  if (!delta) return;
+  const next = Math.max(0, Math.min(maxScroll, crumbs.scrollLeft + delta));
+  if (next === crumbs.scrollLeft) return;
+  event.preventDefault();
+  crumbs.scrollLeft = next;
+  updateCrumbOverflow();
+}
+
 function renderCrumbs() {
   if (!host) return;
   const crumbs = host.querySelector('.crumbs');
@@ -776,6 +804,7 @@ function renderCrumbs() {
   });
   const input = host.querySelector('.path-input');
   if (input && document.activeElement !== input) input.value = cwd;
+  updateCrumbOverflow();
 }
 
 function updateSelectionStyles() {
@@ -1194,7 +1223,19 @@ export async function mount(container, ctx) {
   mounted = true;
   host = h('div', { class: 'pane pane-files' });
   const fileTabs = h('div', { class: 'file-tabs', 'aria-label': 'File tabs' });
-  const crumbs = h('div', { class: 'crumbs' });
+  const crumbs = h('div', { class: 'crumbs', 'aria-label': 'Current directory' });
+  crumbs.addEventListener('scroll', updateCrumbOverflow);
+  crumbs.addEventListener('wheel', onCrumbWheel, { passive: false });
+  if (crumbsObserver) crumbsObserver.disconnect();
+  crumbsObserver = new ResizeObserver(updateCrumbOverflow);
+  crumbsObserver.observe(crumbs);
+  const crumbsShell = h(
+    'div',
+    { class: 'crumbs-shell' },
+    crumbs,
+    h('span', { class: 'crumb-overflow crumb-overflow-start hidden', 'aria-hidden': 'true' }, '...'),
+    h('span', { class: 'crumb-overflow crumb-overflow-end hidden', 'aria-hidden': 'true' }, '...')
+  );
   const pathInput = h('input', {
     class: 'path-input hidden',
     type: 'text',
@@ -1242,7 +1283,7 @@ export async function mount(container, ctx) {
         iconName: 'home',
         onClick: () => navigate((ctx.me && ctx.me.home) || '/')
       }),
-      crumbs,
+      crumbsShell,
       pathInput,
       toolbarButton({
         className: 'path-edit',
@@ -1407,6 +1448,10 @@ export function unmount() {
     saveTimer = null;
   }
   closeMenu();
+  if (crumbsObserver) {
+    crumbsObserver.disconnect();
+    crumbsObserver = null;
+  }
   document.removeEventListener('mousedown', onDocumentDown);
   document.removeEventListener('keydown', onDocumentKey);
 }
