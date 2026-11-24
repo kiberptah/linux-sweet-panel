@@ -380,7 +380,15 @@ function installSelection(tab) {
   el.addEventListener(
     'mousedown',
     (event) => {
-      if (!event.isTrusted || event.button !== 0) return;
+      if (!event.isTrusted) return;
+      if (event.button === 2) {
+        if (tab.term && tab.term.hasSelection()) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+        return;
+      }
+      if (event.button !== 0) return;
       if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
       if (!mouseTracking(tab) || !(event.target instanceof Element)) return;
       const target = event.target.closest('.xterm-screen') ? event.target : null;
